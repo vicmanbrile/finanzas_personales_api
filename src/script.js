@@ -96,11 +96,15 @@ function renderDashboard(tarjetas) {
 
         // Estructura de la tarjeta
         card.innerHTML = `
-            <div class="tarjeta-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="tarjeta-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <h3 style="margin: 0;">${t.nombre}</h3>
                 <span style="background-color: ${t.color}20; color: ${t.color}; padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold;">
                     ${t.usoPorcentaje}% uso
                 </span>
+            </div>
+            
+            <div style="font-size: 0.9rem; color: #444; margin-bottom: 12px; font-weight: 600;">
+                Crédito: ${formatCurrency(t.credito)}
             </div>
             
             <div class="tarjeta-meta" style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #666; margin-bottom: 15px;">
@@ -133,7 +137,7 @@ function renderDashboard(tarjetas) {
                     <span style="font-weight: bold; color: var(--color-disponible);">${formatCurrency(t.disponible)}</span>
                 </div>
             </div>
-        `;
+      `;
         contenedor.appendChild(card);
     });
 }
