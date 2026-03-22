@@ -1,0 +1,13 @@
+services:
+  flask-app:
+    build: .
+    image: devic-tarjetas:local
+    ports:
+      - 8000:8000
+    volumes:
+      - .:/app
+      - ./cache_data.json:/app/cache_data.json
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: no
+networks: {}

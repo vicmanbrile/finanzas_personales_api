@@ -19,31 +19,27 @@ async function cargarDatos() {
 }
 
 function renderDashboard(tarjetas) {
-    // 1. Inicializar variables para los totales
     let totalCredito = 0;
     let totalDisponible = 0;
-    let totalAhorro = 0;     // Corresponde a 'tener'
-    let totalApalancado = 0; // Apalancamiento neto
-    let totalMsi = 0;        // Meses sin intereses
+    let totalAhorro = 0;
+    let totalApalancado = 0;
+    let totalMsi = 0;
 
-    // 2. Sumar los valores de todas las tarjetas
     tarjetas.forEach(t => {
         totalCredito += t.credito || 0;
         totalDisponible += t.disponible || 0;
         totalAhorro += t.tener || 0;
         totalApalancado += t.apalancamiento || 0;
-        totalMsi += t.msi || 0; // Si la API aún no manda MSI en alguna tarjeta, asume 0
+        totalMsi += t.msi || 0;
     });
 
     const totalUsado = totalCredito - totalDisponible;
     const utilizacionGlobal = totalCredito > 0 ? (totalUsado / totalCredito) * 100 : 0;
 
-    // 3. Actualizar los textos del Resumen General en el HTML
     document.getElementById('total-deuda-header').innerText = formatCurrency(totalUsado);
     document.getElementById('total-ahorro').innerText = formatCurrency(totalAhorro);
     document.getElementById('total-apalancado-grid').innerText = formatCurrency(totalApalancado);
     
-    // Verificamos que el elemento MSI exista (por si no has actualizado el HTML aún)
     const msiElement = document.getElementById('total-msi-grid');
     if(msiElement) {
         msiElement.innerText = formatCurrency(totalMsi);
@@ -52,7 +48,6 @@ function renderDashboard(tarjetas) {
     document.getElementById('total-disponible').innerText = formatCurrency(totalDisponible);
     document.getElementById('total-utilizacion').innerText = `${utilizacionGlobal.toFixed(1)}%`;
 
-    // 4. Renderizar la Barra General (dividida en 4 segmentos)
     const barGeneral = document.getElementById('bar-general');
     if (totalCredito > 0 && barGeneral) {
         const pctAhorro = (totalAhorro / totalCredito) * 100;
@@ -60,68 +55,103 @@ function renderDashboard(tarjetas) {
         const pctMsi = (totalMsi / totalCredito) * 100;
         const pctDisponible = (totalDisponible / totalCredito) * 100;
 
-        // Le agregamos tooltips (title) nativos para que al pasar el mouse se vea el monto
         barGeneral.innerHTML = `
             <div style="width: ${pctAhorro}%; height: 100%; background-color: var(--color-ahorro);" title="Ahorro: ${formatCurrency(totalAhorro)}"></div>
             <div style="width: ${pctApalancado}%; height: 100%; background-color: var(--color-apalancado);" title="Apalancamiento: ${formatCurrency(totalApalancado)}"></div>
             <div style="width: ${pctMsi}%; height: 100%; background-color: var(--color-msi, #8b5cf6);" title="MSI: ${formatCurrency(totalMsi)}"></div>
             <div style="width: ${pctDisponible}%; height: 100%; background-color: var(--color-disponible);" title="Disponible: ${formatCurrency(totalDisponible)}"></div>
         `;
-        // Aseguramos que el contenedor de la barra tenga flexbox
         barGeneral.style.display = 'flex';
-        barGeneral.style.height = '12px'; // Ajusta la altura si lo necesitas
+        barGeneral.style.height = '12px';
         barGeneral.style.borderRadius = '6px';
         barGeneral.style.overflow = 'hidden';
     }
 
-    // 5. Renderizar cada Tarjeta
     const contenedor = document.getElementById('tarjetas-container');
-    contenedor.innerHTML = ''; // Limpiamos "Cargando..." o contenido previo
+    contenedor.innerHTML = '';
 
     tarjetas.forEach(t => {
         const card = document.createElement('div');
         card.className = 'tarjeta-card';
         card.style.borderTop = `4px solid ${t.color}`;
-        card.style.padding = '15px'; // Añade padding si no lo tienes en tu CSS
+        card.style.padding = '20px';
         card.style.backgroundColor = '#fff';
-        card.style.borderRadius = '8px';
-        card.style.boxShadow = '0 2px 5px rgba(0,0,0,0.05)';
+        card.style.borderRadius = '12px';
+        card.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.gap = '15px';
 
-        // Calcular porcentajes de la tarjeta individual
+        // Porcentajes de Saldos
         const msiVal = t.msi || 0;
         const pctTener = t.credito > 0 ? (t.tener / t.credito) * 100 : 0;
         const pctApalancamiento = t.credito > 0 ? (t.apalancamiento / t.credito) * 100 : 0;
         const pctMsi = t.credito > 0 ? (msiVal / t.credito) * 100 : 0;
         const pctDisponible = t.credito > 0 ? (t.disponible / t.credito) * 100 : 0;
 
-        // Estructura de la tarjeta
+        // Porcentajes de Semanas (dividido siempre entre 7)
+        const pctSemanaCorriente = Math.min((t.semanaCorriente / 7) * 100, 100);
+        const pctSemanaAPago = Math.min((t.semanaAPago / 7) * 100, 100);
+
+        // Valores de ahorro requeridos
+        const tenerCorriente = t.tenerCorriente || 0;
+        const tenerAPago = t.tenerAPago || 0;
+
         card.innerHTML = `
-            <div class="tarjeta-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                <h3 style="margin: 0;">${t.nombre}</h3>
-                <span style="background-color: ${t.color}20; color: ${t.color}; padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold;">
-                    ${t.usoPorcentaje}% uso
-                </span>
+            <div>
+                <div class="tarjeta-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                    <h3 style="margin: 0; font-size: 1.2rem;">${t.nombre}</h3>
+                    <span style="background-color: ${t.color}20; color: ${t.color}; padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: bold;">
+                        ${t.usoPorcentaje}% uso
+                    </span>
+                </div>
+                <div style="font-size: 0.95rem; color: #444; font-weight: 600;">
+                    Crédito: ${formatCurrency(t.credito)}
+                </div>
             </div>
             
-            <div style="font-size: 0.9rem; color: #444; margin-bottom: 12px; font-weight: 600;">
-                Crédito: ${formatCurrency(t.credito)}
-            </div>
-            
-            <div class="tarjeta-meta" style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #666; margin-bottom: 15px;">
-                <span>Pago: ${t.fechaPago}</span>
-                <span>Semana: ${t.semanaActual}</span>
+            <div class="tarjeta-meta" style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #666;">
+                <span>Fecha a Pago: <strong>${t.fechaAPago}</strong></span>
+                <span style="color: var(--color-ahorro);">Saldo a Pago: <strong>${formatCurrency(t.saldoAPago)}</strong></span>
             </div>
 
-            <div style="display: flex; height: 8px; width: 100%; border-radius: 4px; overflow: hidden; margin-bottom: 15px; background-color: #e2e8f0;">
-                <div style="width: ${pctTener}%; background-color: var(--color-ahorro);"></div>
-                <div style="width: ${pctApalancamiento}%; background-color: var(--color-apalancado);"></div>
-                <div style="width: ${pctMsi}%; background-color: var(--color-msi, #8b5cf6);"></div>
-                <div style="width: ${pctDisponible}%; background-color: var(--color-disponible);"></div>
+            <div style="background: #f8fafc; padding: 12px; border-radius: 8px;">
+                <div style="margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">
+                        <span>Semana Corriente <span style="color: var(--color-ahorro); margin-left: 4px;">(${formatCurrency(tenerCorriente)})</span></span>
+                        <span>${t.semanaCorriente} / 7</span>
+                    </div>
+                    <div style="display: flex; height: 6px; width: 100%; border-radius: 3px; overflow: hidden; background-color: #e2e8f0;">
+                        <div style="width: ${pctSemanaCorriente}%; background-color: #3b82f6; transition: width 0.5s;"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">
+                        <span>Semana a Pago <span style="color: var(--color-ahorro); margin-left: 4px;">(${formatCurrency(tenerAPago)})</span></span>
+                        <span>${t.semanaAPago} / 7</span>
+                    </div>
+                    <div style="display: flex; height: 6px; width: 100%; border-radius: 3px; overflow: hidden; background-color: #e2e8f0;">
+                        <div style="width: ${pctSemanaAPago}%; background-color: #f59e0b; transition: width 0.5s;"></div>
+                    </div>
+                </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem;">
+            <div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #64748b; margin-bottom: 6px; font-weight: 600;">
+                    <span>Distribución de Crédito</span>
+                </div>
+                <div style="display: flex; height: 8px; width: 100%; border-radius: 4px; overflow: hidden; background-color: #e2e8f0;">
+                    <div style="width: ${pctTener}%; background-color: var(--color-ahorro);" title="Ahorro: ${formatCurrency(t.tener)}"></div>
+                    <div style="width: ${pctApalancamiento}%; background-color: var(--color-apalancado);" title="Apalancado: ${formatCurrency(t.apalancamiento)}"></div>
+                    <div style="width: ${pctMsi}%; background-color: var(--color-msi, #8b5cf6);" title="MSI: ${formatCurrency(msiVal)}"></div>
+                    <div style="width: ${pctDisponible}%; background-color: var(--color-disponible);" title="Disponible: ${formatCurrency(t.disponible)}"></div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 0.9rem; padding-top: 5px; border-top: 1px dashed #e2e8f0;">
                 <div style="display: flex; flex-direction: column;">
-                    <span style="color: #666; font-size: 0.75rem;">Ahorro</span>
+                    <span style="color: #666; font-size: 0.75rem;">Ahorro (Tener)</span>
                     <span style="font-weight: bold; color: var(--color-ahorro);">${formatCurrency(t.tener)}</span>
                 </div>
                 <div style="display: flex; flex-direction: column;">
@@ -137,12 +167,11 @@ function renderDashboard(tarjetas) {
                     <span style="font-weight: bold; color: var(--color-disponible);">${formatCurrency(t.disponible)}</span>
                 </div>
             </div>
-      `;
+        `;
         contenedor.appendChild(card);
     });
 }
 
-// Función auxiliar para dar formato de moneda a los números
 function formatCurrency(value) {
     return new Intl.NumberFormat('es-MX', {
         style: 'currency',
