@@ -1,13 +1,10 @@
 services:
-  flask-app:
+  go-app:
     build: .
-    image: devic-tarjetas:local
+    image: devic-tarjetas-go:local
     ports:
-      - 8000:8000
+      - "8000:8000"
     volumes:
       - .:/app
       - ./cache_data.json:/app/cache_data.json
-    environment:
-      - PYTHONUNBUFFERED=1
     restart: no
-networks: {}

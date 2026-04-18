@@ -1,26 +1,19 @@
-FROM python:3.11-slim
-
+# Etapa de compilación
+FROM golang:1.21-alpine AS builder
 WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
 COPY . .
+RUN go build -o main .
 
-EXPOSE 8000
-
-FROM python:3.11-slim
-
+# Etapa final
+FROM alpine:latest
 WORKDIR /app
+COPY --from=builder /app/main .
+COPY index.html .
+COPY icon.png .
+COPY src/ ./src/
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-EXPOSE 8000
-
+# Crear archivo de caché vacío
 RUN touch cache_data.json && chmod 666 cache_data.json
 
-# Solo ejecutamos el archivo directamente
-CMD ["python", "main.py"]
+EXPOSE 8000
+CMD ["./main"]

@@ -4,11 +4,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function cargarDatos() {
     try {
-        const response = await fetch('/api/tarjetas');
-        if (!response.ok) throw new Error('Error al obtener los datos de la API');
-        const tarjetas = await response.json();
-
-        renderDashboard(tarjetas);
+        const [tarjetasResponse, totalsResponse] = await Promise.all([
+            fetch('/api/tarjetas'),
+            fetch('/api/dashboard/totals')
+        ]);
+        
+        if (!tarjetasResponse.ok || !totalsResponse.ok) {
+            throw new Error('Error al obtener los datos de la API');
+        }
+        
+        const tarjetas = await tarjetasResponse.json(); 
+        const totals = await totalsResponse.json();
+        // Se pasan los arreglos y objetos directos de la API
+        renderDashboard(tarjetas, totals);
     } catch (error) {
         console.error("Error:", error);
         document.getElementById('tarjetas-container').innerHTML = `
@@ -17,48 +25,29 @@ async function cargarDatos() {
             </p>`;
     }
 }
-function renderDashboard(tarjetas) {
-    let totalCredito = 0;
-    let totalDisponible = 0;
-    let totalAhorro = 0;
-    let totalApalancado = 0;
-    let totalMsi = 0;
 
-    tarjetas.forEach(t => {
-        totalCredito += t.credito || 0;
-        totalDisponible += t.disponible || 0;
-        totalAhorro += t.tener || 0;
-        totalApalancado += t.apalancamiento || 0;
-        totalMsi += t.msi || 0;
-    });
-
-    const totalUsado = totalCredito - totalDisponible;
-    const utilizacionGlobal = totalCredito > 0 ? (totalUsado / totalCredito) * 100 : 0;
-
-    document.getElementById('total-deuda-header').innerText = formatCurrency(totalUsado);
-    document.getElementById('total-ahorro').innerText = formatCurrency(totalAhorro);
-    document.getElementById('total-apalancado-grid').innerText = formatCurrency(totalApalancado);
+function renderDashboard(tarjetas, totals) {
+    // Renderizado directo desde el objeto 'totals' de la API
+    document.getElementById('total-deuda-header').innerText = formatCurrency(totals.totalUsado);
+    document.getElementById('total-ahorro').innerText = formatCurrency(totals.totalAhorro);
+    document.getElementById('total-apalancado-grid').innerText = formatCurrency(totals.totalApalancado);
     
     const msiElement = document.getElementById('total-msi-grid');
     if(msiElement) {
-        msiElement.innerText = formatCurrency(totalMsi);
+        msiElement.innerText = formatCurrency(totals.totalMsi);
     }
 
-    document.getElementById('total-disponible').innerText = formatCurrency(totalDisponible);
-    document.getElementById('total-utilizacion').innerText = `${utilizacionGlobal.toFixed(1)}%`;
+    document.getElementById('total-disponible').innerText = formatCurrency(totals.totalDisponible);
+    document.getElementById('total-utilizacion').innerText = `${totals.utilizacionGlobal.toFixed(1)}%`;
 
+    // Renderizado de la barra general usando los totales de la API
     const barGeneral = document.getElementById('bar-general');
-    if (totalCredito > 0 && barGeneral) {
-        const pctAhorro = (totalAhorro / totalCredito) * 100;
-        const pctApalancado = (totalApalancado / totalCredito) * 100;
-        const pctMsi = (totalMsi / totalCredito) * 100;
-        const pctDisponible = (totalDisponible / totalCredito) * 100;
-
+    if (totals.totalCredito > 0 && barGeneral) {
         barGeneral.innerHTML = `
-            <div style="width: ${pctAhorro}%; height: 100%; background-color: var(--color-ahorro);" title="Ahorro: ${formatCurrency(totalAhorro)}"></div>
-            <div style="width: ${pctApalancado}%; height: 100%; background-color: var(--color-apalancado);" title="Apalancamiento: ${formatCurrency(totalApalancado)}"></div>
-            <div style="width: ${pctMsi}%; height: 100%; background-color: var(--color-msi, #8b5cf6);" title="MSI: ${formatCurrency(totalMsi)}"></div>
-            <div style="width: ${pctDisponible}%; height: 100%; background-color: var(--color-disponible);" title="Disponible: ${formatCurrency(totalDisponible)}"></div>
+            <div style="width: ${(totals.totalAhorro / totals.totalCredito) * 100}%; height: 100%; background-color: var(--color-ahorro);" title="Ahorro: ${formatCurrency(totals.totalAhorro)}"></div>
+            <div style="width: ${(totals.totalApalancado / totals.totalCredito) * 100}%; height: 100%; background-color: var(--color-apalancado);" title="Apalancamiento: ${formatCurrency(totals.totalApalancado)}"></div>
+            <div style="width: ${(totals.totalMsi / totals.totalCredito) * 100}%; height: 100%; background-color: var(--color-msi, #8b5cf6);" title="MSI: ${formatCurrency(totals.totalMsi)}"></div>
+            <div style="width: ${(totals.totalDisponible / totals.totalCredito) * 100}%; height: 100%; background-color: var(--color-disponible);" title="Disponible: ${formatCurrency(totals.totalDisponible)}"></div>
         `;
         barGeneral.style.display = 'flex';
         barGeneral.style.height = '12px';
@@ -72,6 +61,8 @@ function renderDashboard(tarjetas) {
     tarjetas.forEach(t => {
         const card = document.createElement('div');
         card.className = 'tarjeta-card';
+        
+        // Estilos originales preservados
         card.style.borderTop = `4px solid ${t.color}`;
         card.style.padding = '20px';
         card.style.backgroundColor = '#fff';
@@ -81,22 +72,11 @@ function renderDashboard(tarjetas) {
         card.style.flexDirection = 'column';
         card.style.gap = '15px';
 
-        // Valores Generales
         const msiVal = t.msi || 0;
-        const pctApalancamiento = t.credito > 0 ? (t.apalancamiento / t.credito) * 100 : 0;
-        const pctMsi = t.credito > 0 ? (msiVal / t.credito) * 100 : 0;
-        const pctDisponible = t.credito > 0 ? (t.disponible / t.credito) * 100 : 0;
-
-        // Valores de ahorro requeridos separados
         const tenerCorriente = Number(t.tenerCorriente) || 0;
         const tenerAPago = Number(t.tenerAPago) || 0;
         const totalAhorroEnSemana = tenerCorriente + tenerAPago;
 
-        // Porcentajes para la barra de Distribución (divididos sobre el total del Crédito)
-        const pctTenerAPagoCredito = t.credito > 0 ? (tenerAPago / t.credito) * 100 : 0;
-        const pctTenerCorrienteCredito = t.credito > 0 ? (tenerCorriente / t.credito) * 100 : 0;
-
-        // Texto dinámico inteligente
         let textoProgreso = '';
         if (tenerAPago > 0 && tenerCorriente > 0) {
             textoProgreso = `Semana Pago <span style="color: #f59e0b;">(${formatCurrency(tenerAPago)})</span> 4 / 4 </br> <span style="margin: 0 4px; color: #cbd5e1;"> </br> </span> Corriente <span style="color: #3b82f6;">(${formatCurrency(tenerCorriente)})</span> ${t.semanaCorriente} / 3`;
@@ -129,18 +109,16 @@ function renderDashboard(tarjetas) {
                     <span style="font-size: 0.75rem; color: #64748b; font-weight: 600; text-align: left;">
                         Distribución de Crédito
                     </span>
-                    
                     <span style="display: ${totalAhorroEnSemana > 0 ? 'block' : 'none'}; font-size: 0.75rem; font-weight: 600; text-align: left; color: #64748b;">
                         ${textoProgreso}
                     </span>
                 </div>
                 <div style="display: flex; height: 8px; width: 100%; border-radius: 4px; overflow: hidden; background-color: #e2e8f0;">
-                    <div style="width: ${pctTenerAPagoCredito}%; background-color: #f59e0b; transition: width 0.5s;" title="Semana a Pago: ${formatCurrency(tenerAPago)}"></div>
-                    <div style="width: ${pctTenerCorrienteCredito}%; background-color: #3b82f6; transition: width 0.5s;" title="Corriente: ${formatCurrency(tenerCorriente)}"></div>
-                    
-                    <div style="width: ${pctApalancamiento}%; background-color: var(--color-apalancado);" title="Apalancado: ${formatCurrency(t.apalancamiento)}"></div>
-                    <div style="width: ${pctMsi}%; background-color: var(--color-msi, #8b5cf6);" title="MSI: ${formatCurrency(msiVal)}"></div>
-                    <div style="width: ${pctDisponible}%; background-color: var(--color-disponible);" title="Disponible: ${formatCurrency(t.disponible)}"></div>
+                    <div style="width: ${t.credito > 0 ? (tenerAPago / t.credito) * 100 : 0}%; background-color: #f59e0b; transition: width 0.5s;" title="Semana a Pago: ${formatCurrency(tenerAPago)}"></div>
+                    <div style="width: ${t.credito > 0 ? (tenerCorriente / t.credito) * 100 : 0}%; background-color: #3b82f6; transition: width 0.5s;" title="Corriente: ${formatCurrency(tenerCorriente)}"></div>
+                    <div style="width: ${t.credito > 0 ? (t.apalancamiento / t.credito) * 100 : 0}%; background-color: var(--color-apalancado);" title="Apalancado: ${formatCurrency(t.apalancamiento)}"></div>
+                    <div style="width: ${t.credito > 0 ? (msiVal / t.credito) * 100 : 0}%; background-color: var(--color-msi, #8b5cf6);" title="MSI: ${formatCurrency(msiVal)}"></div>
+                    <div style="width: ${t.credito > 0 ? (t.disponible / t.credito) * 100 : 0}%; background-color: var(--color-disponible);" title="Disponible: ${formatCurrency(t.disponible)}"></div>
                 </div>
             </div>
 
