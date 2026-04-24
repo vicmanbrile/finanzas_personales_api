@@ -1,17 +1,29 @@
 package api
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"finanzas-personales/api/db/modelos"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+const (
+	dbName         = "finanzas"
+	collectionName = "tarjetas"
+	SheetURL       = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTXdAW8zU6-897ZCb-1r4--VCALsGkuzo5psM4pimZhuaAqApY0gyKEvH6GtUgL0N5YwnqCfeTtpibj/pub?gid=0&single=true&output=csv"
 )
 
 func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
@@ -21,35 +33,58 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 			return
 		}
 
+		collection := mongoClient.Database(dbName).Collection(collectionName)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		switch r.Method {
 
 		case http.MethodGet:
-			tarjetas, err := obtenerCreditos()
-			if err != nil {
-				http.Error(w, "Error interno del servidor", http.StatusInternalServerError)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
 			idStr := r.URL.Query().Get("id")
-
 			if idStr == "" {
+				findOptions := options.Find()
+				findOptions.SetSort(bson.D{{Key: "saldoapago", Value: -1}})
+
+				cursor, err := collection.Find(ctx, bson.D{}, findOptions)
+				if err != nil {
+					log.Printf("Error consultando MongoDB: %v", err)
+					http.Error(w, "Error interno del servidor", http.StatusInternalServerError)
+					return
+				}
+				defer cursor.Close(ctx)
+
+				var tarjetas []modelos.Tarjeta
+				if err = cursor.All(ctx, &tarjetas); err != nil {
+					log.Printf("Error decodificando resultados: %v", err)
+					http.Error(w, "Error interno", http.StatusInternalServerError)
+					return
+				}
+
+				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(tarjetas)
 				return
 			}
 
-			id, err := strconv.Atoi(idStr)
+			objID, err := primitive.ObjectIDFromHex(idStr)
 			if err != nil {
-				http.Error(w, "ID inválido. Debe ser un número.", http.StatusBadRequest)
+				http.Error(w, "Formato de ID inválido para MongoDB", http.StatusBadRequest)
 				return
 			}
 
-			if id < 0 || id >= len(tarjetas) {
-				http.Error(w, "Tarjeta no encontrada", http.StatusNotFound)
+			var tarjetaEncontrada modelos.Tarjeta
+			err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&tarjetaEncontrada)
+			if err != nil {
+				if err == mongo.ErrNoDocuments {
+					http.Error(w, "Tarjeta no encontrada", http.StatusNotFound)
+				} else {
+					log.Printf("Error buscando por ID: %v", err)
+					http.Error(w, "Error interno del servidor", http.StatusInternalServerError)
+				}
 				return
 			}
 
-			json.NewEncoder(w).Encode(tarjetas[id])
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(tarjetaEncontrada)
 
 		case http.MethodPost:
 			if err := r.ParseMultipartForm(10 << 20); err != nil {
@@ -80,33 +115,16 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 	}
 }
 
-func ObtenerTotales() (totales modelos.Totales, err error) {
-
-	var tarjetas, _ = obtenerCreditos()
-
-	for _, t := range tarjetas {
-		totales.TotalCredito += t.Credito
-		totales.TotalDisponible += t.Disponible
-		totales.TotalAhorro += t.Tener
-		totales.TotalApalancado += t.Apalancamiento
-		totales.TotalMsi += t.Msi
-	}
-
-	totales.TotalUsado = totales.TotalCredito - totales.TotalDisponible
-	if totales.TotalCredito > 0 {
-		totales.UtilizacionGlobal = (totales.TotalUsado / totales.TotalCredito) * 100
-	}
-
-	return totales, nil
-}
-
-// Esta funcion queda pendiente a que la parte del get para mongodb
-
-func obtenerCreditos() ([]modelos.Tarjeta, error) {
+// InyectarDatosDesdeCSV es la función que debes llamar desde tu main.go
+// Lee el CSV, calcula, ordena, asigna IDs y guarda en MongoDB SOLO si el nombre no existe.
+func InyectarDatosDesdeCSV(mongoClient *mongo.Client) error {
+	log.Println("Iniciando proceso de inyección de datos desde CSV a MongoDB...")
 	var tarjetas []modelos.Tarjeta
 
-	resp, _ := http.Get(SheetURL)
-
+	resp, err := http.Get(SheetURL)
+	if err != nil {
+		return fmt.Errorf("error al obtener el CSV: %v", err)
+	}
 	defer resp.Body.Close()
 
 	lector := csv.NewReader(resp.Body)
@@ -149,12 +167,11 @@ func obtenerCreditos() ([]modelos.Tarjeta, error) {
 		// 3. Ejecutar los cálculos (la tarjeta se "auto-modifica")
 		t.CalcularCredito()
 
-		// 4. Agregar a la lista
+		// 4. Agregar a la lista temporal
 		tarjetas = append(tarjetas, t)
 	}
 
-	// 5. Ordenamiento personalizado
-	// Ahora funciona perfecto porque t.SemanaAPago ya fue calculada arriba
+	// 5. Ordenamiento personalizado original del CSV
 	sort.Slice(tarjetas, func(i, j int) bool {
 		score := func(t modelos.Tarjeta) int {
 			if t.SemanaCorriente > 0 && t.SemanaAPago > 4 {
@@ -168,10 +185,37 @@ func obtenerCreditos() ([]modelos.Tarjeta, error) {
 		return score(tarjetas[i]) < score(tarjetas[j])
 	})
 
-	// 6. Asignación de IDs una vez ordenado
+	// 6. Asignación de IDs y guardado en MongoDB
+	collection := mongoClient.Database(dbName).Collection(collectionName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	nuevosInsertados := 0
 	for i := range tarjetas {
-		tarjetas[i].ID = i + 1 // o solo `i` si prefieres que empiece en 0
+		// ELIMINADO: tarjetas[i].ID = i + 1
+
+		// Verificamos por nombre para no duplicar
+		filtro := bson.M{"nombre": tarjetas[i].Nombre}
+		var resultado bson.M
+		err := collection.FindOne(ctx, filtro).Decode(&resultado)
+
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				// No existe, MongoDB le creará su propio _id automáticamente al insertar
+				_, errInsert := collection.InsertOne(ctx, tarjetas[i])
+				if errInsert != nil {
+					log.Printf("Error insertando tarjeta %s: %v", tarjetas[i].Nombre, errInsert)
+				} else {
+					log.Printf("Tarjeta inyectada exitosamente: %s", tarjetas[i].Nombre)
+					nuevosInsertados++
+				}
+			} else {
+				log.Printf("Error al buscar la tarjeta %s: %v", tarjetas[i].Nombre, err)
+			}
+		} else {
+			log.Printf("La tarjeta '%s' ya existe. Saltando.", tarjetas[i].Nombre)
+		}
 	}
 
-	return tarjetas, nil
+	return nil
 }

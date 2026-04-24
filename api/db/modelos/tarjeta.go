@@ -3,27 +3,33 @@ package modelos
 import (
 	"math"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type Tarjeta struct {
-	ID              int     `json:"id"`
-	Nombre          string  `json:"nombre"`
-	Disponible      float64 `json:"disponible"`
-	Saldo           float64 `json:"saldo"`
-	Apagar          float64 `json:"apagar"`
-	FechaPago       string  `json:"fechaAPago"`
-	Color           string  `json:"color"`
-	Credito         float64 `json:"credito"`
-	SaldoAPago      float64 `json:"saldoAPago"`
-	SemanaAPago     int     `json:"semanaAPago"`
-	TenerAPago      float64 `json:"tenerAPago"`
-	SemanaCorriente int     `json:"semanaCorriente"`
-	TenerCorriente  float64 `json:"tenerCorriente"`
-	Tener           float64 `json:"tener"`
-	Apalancamiento  float64 `json:"apalancamiento"`
-	Msi             float64 `json:"msi"`
-	Uso             float64 `json:"uso"`
-	UsoPorcentaje   float64 `json:"usoPorcentaje"`
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Nombre          string             `bson:"nombre" json:"nombre"`
+	Disponible      float64            `bson:"disponible" json:"disponible"`
+	Saldo           float64            `bson:"saldo" json:"saldo"`
+	Apagar          float64            `bson:"apagar" json:"apagar"`
+	FechaPago       string             `bson:"fechaAPago" json:"fechaAPago"` // Se guarda como fechaAPago en Mongo
+	Color           string             `bson:"color" json:"color"`
+	Credito         float64            `bson:"credito" json:"credito"`
+	SaldoAPago      float64            `bson:"saldoAPago" json:"saldoAPago"`
+	SemanaAPago     int                `bson:"semanaAPago" json:"semanaAPago"`
+	TenerAPago      float64            `bson:"tenerAPago" json:"tenerAPago"`
+	SemanaCorriente int                `bson:"semanaCorriente" json:"semanaCorriente"`
+	TenerCorriente  float64            `bson:"tenerCorriente" json:"tenerCorriente"`
+
+	// --- ESTOS SON LOS CAMPOS CLAVE PARA LA SUMA EN MONGODB ---
+	Tener          float64 `bson:"tener" json:"tener"`
+	Apalancamiento float64 `bson:"apalancamiento" json:"apalancamiento"`
+	Msi            float64 `bson:"msi" json:"msi"`
+	// ----------------------------------------------------------
+
+	Uso           float64 `bson:"uso" json:"uso"`
+	UsoPorcentaje float64 `bson:"usoPorcentaje" json:"usoPorcentaje"`
 }
 
 func (t *Tarjeta) CalcularCredito() {

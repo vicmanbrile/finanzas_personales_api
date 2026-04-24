@@ -40,6 +40,7 @@ func main() {
 
 	log.Println("Conectado exitosamente a MongoDB")
 	mongoClient = client
+	api.InyectarDatosDesdeCSV(mongoClient)
 
 	http.Handle("/", http.FileServer(http.Dir("static")))
 	http.HandleFunc("/api/tarjetas", api.TarjetasHandler(mongoClient))
