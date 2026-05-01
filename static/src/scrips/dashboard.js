@@ -41,3 +41,25 @@ function renderDashboardTotales(totals) {
         `;
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const sidebar = document.getElementById('sidebar');
+    const btnOpen = document.getElementById('toggle-sidebar-open');
+    const btnClose = document.getElementById('toggle-sidebar-close');
+
+    // Función para alternar sidebar
+    const toggleSidebar = () => {
+        sidebar.classList.toggle('hidden');
+    };
+
+    if (btnOpen) btnOpen.onclick = toggleSidebar;
+    if (btnClose) btnClose.onclick = toggleSidebar;
+
+    // Si es móvil, ocultar por defecto
+    if (window.innerWidth < 1024) {
+        sidebar.classList.add('hidden');
+    }
+    
+    cargarDashboard();
+    cargarTarjetas();
+});
