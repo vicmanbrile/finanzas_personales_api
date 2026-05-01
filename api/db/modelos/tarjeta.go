@@ -21,32 +21,24 @@ type Tarjeta struct {
 	TenerAPago      float64            `bson:"tenerAPago" json:"tenerAPago"`
 	SemanaCorriente int                `bson:"semanaCorriente" json:"semanaCorriente"`
 	TenerCorriente  float64            `bson:"tenerCorriente" json:"tenerCorriente"`
-
-	// --- ESTOS SON LOS CAMPOS CLAVE PARA LA SUMA EN MONGODB ---
-	Tener          float64 `bson:"tener" json:"tener"`
-	Apalancamiento float64 `bson:"apalancamiento" json:"apalancamiento"`
-	Msi            float64 `bson:"msi" json:"msi"`
-	// ----------------------------------------------------------
-
-	Uso           float64 `bson:"uso" json:"uso"`
-	UsoPorcentaje float64 `bson:"usoPorcentaje" json:"usoPorcentaje"`
+	Tener           float64            `bson:"tener" json:"tener"`
+	Apalancamiento  float64            `bson:"apalancamiento" json:"apalancamiento"`
+	Msi             float64            `bson:"msi" json:"msi"`
+	Uso             float64            `bson:"uso" json:"uso"`
+	UsoPorcentaje   float64            `bson:"usoPorcentaje" json:"usoPorcentaje"`
 }
 
 func (t *Tarjeta) CalcularCredito() {
-	// Sincronizar campos
 	t.Apagar = t.SaldoAPago
 
-	// CORRECCIÓN: Intentar parsear el formato de la base de datos (YYYY-MM-DD)
-	// Si falla, intentar con el formato del frontend/formateado (DD/MM/YYYY)
 	fechaPago, err := time.Parse("2006-01-02", t.FechaPago)
 	if err != nil {
 		fechaPago, err = time.Parse("02/01/2006", t.FechaPago)
 		if err != nil {
-			fechaPago = time.Now() // Solo cae aquí si la fecha viene vacía o totalmente rota
+			fechaPago = time.Now()
 		}
 	}
 
-	// Lógica de semanas hasta el pago
 	hoy := time.Now().Truncate(24 * time.Hour)
 	diasAlViernes := (int(fechaPago.Weekday()) - 4 + 7) % 7
 	inicioSemana7 := fechaPago.AddDate(0, 0, -diasAlViernes)
@@ -58,7 +50,6 @@ func (t *Tarjeta) CalcularCredito() {
 	}
 	t.SemanaAPago = int(math.Max(1, math.Min(7, float64(semanas))))
 
-	// Cálculos financieros
 	t.TenerAPago = math.Round((t.SaldoAPago*float64(t.SemanaAPago)/7.0)*100) / 100
 
 	saldoCorriente := math.Max(0.0, t.Saldo-t.SaldoAPago)
@@ -85,6 +76,5 @@ func (t *Tarjeta) CalcularCredito() {
 		t.UsoPorcentaje = math.Round((deudaTotal/t.Credito*100)*10) / 10
 	}
 
-	// Ahora es seguro formatearlo, porque la función ya soporta leer el formato "02/01/2006"
 	t.FechaPago = fechaPago.Format("02/01/2006")
 }

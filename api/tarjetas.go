@@ -60,6 +60,10 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 					return
 				}
 
+				for i := range tarjetas {
+					tarjetas[i].CalcularCredito()
+				}
+
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(tarjetas)
 				return
@@ -83,6 +87,8 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 				return
 			}
 
+			tarjetaEncontrada.CalcularCredito()
+
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(tarjetaEncontrada)
 
@@ -94,29 +100,114 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 
 			accion := r.FormValue("action")
 			nombre := r.FormValue("nombre")
+			color := r.FormValue("color")
+			fechaPago := r.FormValue("fechaPago")
+
+			credito, _ := strconv.ParseFloat(r.FormValue("credito"), 64)
+			disponible, _ := strconv.ParseFloat(r.FormValue("disponible"), 64)
+			saldo, _ := strconv.ParseFloat(r.FormValue("saldo"), 64)
+			saldoAPago, _ := strconv.ParseFloat(r.FormValue("saldoAPago"), 64)
+
+			if color == "" {
+				color = "#6366f1"
+			}
+
+			nuevaTarjeta := modelos.Tarjeta{
+				Nombre:     nombre,
+				Credito:    credito,
+				Disponible: disponible,
+				Saldo:      saldo,
+				FechaPago:  fechaPago,
+				SaldoAPago: saldoAPago,
+				Color:      color,
+			}
 
 			switch accion {
 			case "update":
 				fmt.Printf("[DB] Ejecutando UPDATE para: %s\n", nombre)
+				idStr := r.FormValue("id")
+				if idStr == "" {
+					http.Error(w, "El ID es obligatorio para actualizar", http.StatusBadRequest)
+					return
+				}
+
+				objID, err := primitive.ObjectIDFromHex(idStr)
+				if err != nil {
+					http.Error(w, "Formato de ID inválido", http.StatusBadRequest)
+					return
+				}
+
+				// Creamos el documento de actualización usando los campos de BSON de tu modelo
+				// Nota: Los campos calculados se guardarán como vacíos/cero en la BD,
+				// pero no importa porque los recalculas en el GET.
+				updateData := bson.M{
+					"$set": bson.M{
+						"nombre":          nuevaTarjeta.Nombre,
+						"disponible":      nuevaTarjeta.Disponible,
+						"saldo":           nuevaTarjeta.Saldo,
+						"apagar":          nuevaTarjeta.Apagar,
+						"fechaAPago":      nuevaTarjeta.FechaPago,
+						"color":           nuevaTarjeta.Color,
+						"credito":         nuevaTarjeta.Credito,
+						"saldoAPago":      nuevaTarjeta.SaldoAPago,
+						"semanaAPago":     nuevaTarjeta.SemanaAPago,
+						"tenerAPago":      nuevaTarjeta.TenerAPago,
+						"semanaCorriente": nuevaTarjeta.SemanaCorriente,
+						"tenerCorriente":  nuevaTarjeta.TenerCorriente,
+						"tener":           nuevaTarjeta.Tener,
+						"apalancamiento":  nuevaTarjeta.Apalancamiento,
+						"msi":             nuevaTarjeta.Msi,
+						"uso":             nuevaTarjeta.Uso,
+						"usoPorcentaje":   nuevaTarjeta.UsoPorcentaje,
+					},
+				}
+
+				// Ejecutamos la actualización
+				_, err = collection.UpdateOne(ctx, bson.M{"_id": objID}, updateData)
+				if err != nil {
+					log.Printf("Error actualizando tarjeta en DB: %v", err)
+					http.Error(w, "Error al actualizar la base de datos", http.StatusInternalServerError)
+					return
+				}
+
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte("¡Actualizado con éxito!"))
+
 			case "create":
 				fmt.Printf("[DB] Ejecutando INSERT para: %s\n", nombre)
+
+				// Opcional: Validar que el nombre no exista ya
+				var existente modelos.Tarjeta
+				err := collection.FindOne(ctx, bson.M{"nombre": nuevaTarjeta.Nombre}).Decode(&existente)
+				if err == nil {
+					http.Error(w, "Ya existe una tarjeta con ese nombre", http.StatusConflict)
+					return
+				} else if err != mongo.ErrNoDocuments {
+					log.Printf("Error verificando existencia: %v", err)
+					http.Error(w, "Error interno del servidor", http.StatusInternalServerError)
+					return
+				}
+
+				// Insertamos en la BD. MongoDB creará el '_id' automáticamente.
+				_, err = collection.InsertOne(ctx, nuevaTarjeta)
+				if err != nil {
+					log.Printf("Error creando tarjeta en DB: %v", err)
+					http.Error(w, "Error al crear en la base de datos", http.StatusInternalServerError)
+					return
+				}
+
 				w.WriteHeader(http.StatusCreated)
 				w.Write([]byte("¡Creado con éxito!"))
-			default:
-				w.WriteHeader(http.StatusCreated)
-				w.Write([]byte("No creado"))
-			}
 
+			default:
+				http.Error(w, "Acción no reconocida", http.StatusBadRequest)
+			}
 		default:
 			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 		}
 	}
 }
 
-// InyectarDatosDesdeCSV es la función que debes llamar desde tu main.go
-// Lee el CSV, calcula, ordena, asigna IDs y guarda en MongoDB SOLO si el nombre no existe.
 func InyectarDatosDesdeCSV(mongoClient *mongo.Client) error {
 	log.Println("Iniciando proceso de inyección de datos desde CSV a MongoDB...")
 	var tarjetas []modelos.Tarjeta
@@ -136,11 +227,10 @@ func InyectarDatosDesdeCSV(mongoClient *mongo.Client) error {
 		if err == io.EOF {
 			break
 		}
-		if err != nil || len(record) < 6 { // Validación rápida de la fila
+		if err != nil || len(record) < 6 {
 			continue
 		}
 
-		// 1. Parseo de datos desde el CSV
 		nombre := record[0]
 		credito, _ := strconv.ParseFloat(record[1], 64)
 		disponible, _ := strconv.ParseFloat(record[2], 64)
@@ -148,12 +238,11 @@ func InyectarDatosDesdeCSV(mongoClient *mongo.Client) error {
 		fechaStr := strings.TrimSpace(record[4])
 		saldoPagar, _ := strconv.ParseFloat(record[5], 64)
 
-		color := "#6366f1" // Color por defecto
+		color := "#6366f1"
 		if len(record) > 6 && strings.TrimSpace(record[6]) != "" {
 			color = strings.TrimSpace(record[6])
 		}
 
-		// 2. Creación de la estructura con los datos base
 		t := modelos.Tarjeta{
 			Nombre:     nombre,
 			Credito:    credito,
@@ -164,10 +253,6 @@ func InyectarDatosDesdeCSV(mongoClient *mongo.Client) error {
 			Color:      color,
 		}
 
-		// 3. Ejecutar los cálculos (la tarjeta se "auto-modifica")
-		t.CalcularCredito()
-
-		// 4. Agregar a la lista temporal
 		tarjetas = append(tarjetas, t)
 	}
 
@@ -185,23 +270,18 @@ func InyectarDatosDesdeCSV(mongoClient *mongo.Client) error {
 		return score(tarjetas[i]) < score(tarjetas[j])
 	})
 
-	// 6. Asignación de IDs y guardado en MongoDB
 	collection := mongoClient.Database(dbName).Collection(collectionName)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	nuevosInsertados := 0
 	for i := range tarjetas {
-		// ELIMINADO: tarjetas[i].ID = i + 1
-
-		// Verificamos por nombre para no duplicar
 		filtro := bson.M{"nombre": tarjetas[i].Nombre}
 		var resultado bson.M
 		err := collection.FindOne(ctx, filtro).Decode(&resultado)
 
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				// No existe, MongoDB le creará su propio _id automáticamente al insertar
 				_, errInsert := collection.InsertOne(ctx, tarjetas[i])
 				if errInsert != nil {
 					log.Printf("Error insertando tarjeta %s: %v", tarjetas[i].Nombre, errInsert)

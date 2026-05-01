@@ -12,14 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-type Totales struct {
-	TotalCredito    float64 `bson:"totalCredito"`
-	TotalDisponible float64 `bson:"totalDisponible"`
-	TotalAhorro     float64 `bson:"totalAhorro"`
-	TotalApalancado float64 `bson:"totalApalancado"`
-	TotalMsi        float64 `bson:"totalMsi"`
-}
-
 func TotalsHandler(mongoClient *mongo.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		datos, err := ObtenerTotales(mongoClient)
@@ -34,51 +26,34 @@ func TotalsHandler(mongoClient *mongo.Client) http.HandlerFunc {
 	}
 }
 
-// ObtenerTotales hace la suma directamente en MongoDB
 func ObtenerTotales(mongoClient *mongo.Client) (modelos.Totales, error) {
 	var totales modelos.Totales
 
-	collection := mongoClient.Database(dbName).Collection(collectionName) // Usa tus constantes
+	collection := mongoClient.Database(dbName).Collection(collectionName)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	pipeline := mongo.Pipeline{
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "totalCredito", Value: bson.D{{Key: "$sum", Value: "$credito"}}},
-			{Key: "totalDisponible", Value: bson.D{{Key: "$sum", Value: "$disponible"}}},
-			{Key: "totalAhorro", Value: bson.D{{Key: "$sum", Value: "$tener"}}},
-			{Key: "totalApalancado", Value: bson.D{{Key: "$sum", Value: "$apalancamiento"}}},
-			{Key: "totalMsi", Value: bson.D{{Key: "$sum", Value: "$msi"}}},
-		}}},
-	}
-
-	cursor, err := collection.Aggregate(ctx, pipeline)
+	cursor, err := collection.Find(ctx, bson.D{})
 	if err != nil {
 		return totales, err
 	}
 	defer cursor.Close(ctx)
 
-	resultadoAgregacion := Totales{}
-
-	// 4. Si hay resultados, los decodificamos
-	if cursor.Next(ctx) {
-		if err := cursor.Decode(&resultadoAgregacion); err != nil {
-			return totales, err
-		}
-	} else {
-		// Si no hay tarjetas, retornamos los totales en 0
-		return totales, nil
+	var tarjetas []modelos.Tarjeta
+	if err = cursor.All(ctx, &tarjetas); err != nil {
+		return totales, err
 	}
 
-	// 5. Pasamos los datos de la base de datos a tu estructura Totales original
-	totales.TotalCredito = resultadoAgregacion.TotalCredito
-	totales.TotalDisponible = resultadoAgregacion.TotalDisponible
-	totales.TotalAhorro = resultadoAgregacion.TotalAhorro
-	totales.TotalApalancado = resultadoAgregacion.TotalApalancado
-	totales.TotalMsi = resultadoAgregacion.TotalMsi
+	for i := range tarjetas {
+		tarjetas[i].CalcularCredito()
 
-	// 6. Calculamos los campos derivados en Go (es más fácil hacerlo aquí que en Mongo)
+		totales.TotalCredito += tarjetas[i].Credito
+		totales.TotalDisponible += tarjetas[i].Disponible
+		totales.TotalAhorro += tarjetas[i].Tener
+		totales.TotalApalancado += tarjetas[i].Apalancamiento
+		totales.TotalMsi += tarjetas[i].Msi
+	}
+
 	totales.TotalUsado = totales.TotalCredito - totales.TotalDisponible
 	if totales.TotalCredito > 0 {
 		totales.UtilizacionGlobal = (totales.TotalUsado / totales.TotalCredito) * 100
