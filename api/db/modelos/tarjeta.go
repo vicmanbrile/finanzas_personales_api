@@ -12,20 +12,20 @@ type Tarjeta struct {
 	Nombre          string             `bson:"nombre" json:"nombre"`
 	Disponible      float64            `bson:"disponible" json:"disponible"`
 	Saldo           float64            `bson:"saldo" json:"saldo"`
-	Apagar          float64            `bson:"apagar" json:"apagar"`
-	FechaPago       string             `bson:"fechaAPago" json:"fechaAPago"` // Se guarda como fechaAPago en Mongo
+	Apagar          float64            `bson:"-" json:"apagar"`
+	FechaPago       string             `bson:"fechaAPago" json:"fechaAPago"`
 	Color           string             `bson:"color" json:"color"`
 	Credito         float64            `bson:"credito" json:"credito"`
 	SaldoAPago      float64            `bson:"saldoAPago" json:"saldoAPago"`
-	SemanaAPago     int                `bson:"semanaAPago" json:"semanaAPago"`
-	TenerAPago      float64            `bson:"tenerAPago" json:"tenerAPago"`
-	SemanaCorriente int                `bson:"semanaCorriente" json:"semanaCorriente"`
-	TenerCorriente  float64            `bson:"tenerCorriente" json:"tenerCorriente"`
-	Tener           float64            `bson:"tener" json:"tener"`
-	Apalancamiento  float64            `bson:"apalancamiento" json:"apalancamiento"`
-	Msi             float64            `bson:"msi" json:"msi"`
-	Uso             float64            `bson:"uso" json:"uso"`
-	UsoPorcentaje   float64            `bson:"usoPorcentaje" json:"usoPorcentaje"`
+	SemanaAPago     int                `bson:"-" json:"semanaAPago"`
+	TenerAPago      float64            `bson:"-" json:"tenerAPago"`
+	SemanaCorriente int                `bson:"-" json:"semanaCorriente"`
+	TenerCorriente  float64            `bson:"-" json:"tenerCorriente"`
+	Tener           float64            `bson:"-" json:"tener"`
+	Apalancamiento  float64            `bson:"-" json:"apalancamiento"`
+	Msi             float64            `bson:"-" json:"msi"`
+	Uso             float64            `bson:"-" json:"uso"`
+	UsoPorcentaje   float64            `bson:"-" json:"usoPorcentaje"`
 }
 
 func (t *Tarjeta) CalcularCredito() {
