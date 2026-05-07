@@ -2,16 +2,12 @@ package api
 
 import (
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"finanzas-personales/api/db/modelos"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -23,7 +19,6 @@ import (
 const (
 	dbName         = "finanzas"
 	collectionName = "tarjetas"
-	SheetURL       = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTXdAW8zU6-897ZCb-1r4--VCALsGkuzo5psM4pimZhuaAqApY0gyKEvH6GtUgL0N5YwnqCfeTtpibj/pub?gid=0&single=true&output=csv"
 )
 
 func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
@@ -206,96 +201,4 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 		}
 	}
-}
-
-func InyectarDatosDesdeCSV(mongoClient *mongo.Client) error {
-	log.Println("Iniciando proceso de inyección de datos desde CSV a MongoDB...")
-	var tarjetas []modelos.Tarjeta
-
-	resp, err := http.Get(SheetURL)
-	if err != nil {
-		return fmt.Errorf("error al obtener el CSV: %v", err)
-	}
-	defer resp.Body.Close()
-
-	lector := csv.NewReader(resp.Body)
-	lector.FieldsPerRecord = -1
-	lector.Read() // Omitir el encabezado
-
-	for {
-		record, err := lector.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil || len(record) < 6 {
-			continue
-		}
-
-		nombre := record[0]
-		credito, _ := strconv.ParseFloat(record[1], 64)
-		disponible, _ := strconv.ParseFloat(record[2], 64)
-		saldo, _ := strconv.ParseFloat(record[3], 64)
-		fechaStr := strings.TrimSpace(record[4])
-		saldoPagar, _ := strconv.ParseFloat(record[5], 64)
-
-		color := "#6366f1"
-		if len(record) > 6 && strings.TrimSpace(record[6]) != "" {
-			color = strings.TrimSpace(record[6])
-		}
-
-		t := modelos.Tarjeta{
-			Nombre:     nombre,
-			Credito:    credito,
-			Disponible: disponible,
-			Saldo:      saldo,
-			FechaPago:  fechaStr,
-			SaldoAPago: saldoPagar,
-			Color:      color,
-		}
-
-		tarjetas = append(tarjetas, t)
-	}
-
-	// 5. Ordenamiento personalizado original del CSV
-	sort.Slice(tarjetas, func(i, j int) bool {
-		score := func(t modelos.Tarjeta) int {
-			if t.SemanaCorriente > 0 && t.SemanaAPago > 4 {
-				return 3
-			}
-			if t.SemanaAPago == 1 {
-				return 2
-			}
-			return -t.SemanaAPago
-		}
-		return score(tarjetas[i]) < score(tarjetas[j])
-	})
-
-	collection := mongoClient.Database(dbName).Collection(collectionName)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	nuevosInsertados := 0
-	for i := range tarjetas {
-		filtro := bson.M{"nombre": tarjetas[i].Nombre}
-		var resultado bson.M
-		err := collection.FindOne(ctx, filtro).Decode(&resultado)
-
-		if err != nil {
-			if err == mongo.ErrNoDocuments {
-				_, errInsert := collection.InsertOne(ctx, tarjetas[i])
-				if errInsert != nil {
-					log.Printf("Error insertando tarjeta %s: %v", tarjetas[i].Nombre, errInsert)
-				} else {
-					log.Printf("Tarjeta inyectada exitosamente: %s", tarjetas[i].Nombre)
-					nuevosInsertados++
-				}
-			} else {
-				log.Printf("Error al buscar la tarjeta %s: %v", tarjetas[i].Nombre, err)
-			}
-		} else {
-			log.Printf("La tarjeta '%s' ya existe. Saltando.", tarjetas[i].Nombre)
-		}
-	}
-
-	return nil
 }
