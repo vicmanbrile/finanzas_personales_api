@@ -132,32 +132,18 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 					return
 				}
 
-				// Creamos el documento de actualización usando los campos de BSON de tu modelo
-				// Nota: Los campos calculados se guardarán como vacíos/cero en la BD,
-				// pero no importa porque los recalculas en el GET.
 				updateData := bson.M{
 					"$set": bson.M{
-						"nombre":          nuevaTarjeta.Nombre,
-						"disponible":      nuevaTarjeta.Disponible,
-						"saldo":           nuevaTarjeta.Saldo,
-						"apagar":          nuevaTarjeta.Apagar,
-						"fechaAPago":      nuevaTarjeta.FechaPago,
-						"color":           nuevaTarjeta.Color,
-						"credito":         nuevaTarjeta.Credito,
-						"saldoAPago":      nuevaTarjeta.SaldoAPago,
-						"semanaAPago":     nuevaTarjeta.SemanaAPago,
-						"tenerAPago":      nuevaTarjeta.TenerAPago,
-						"semanaCorriente": nuevaTarjeta.SemanaCorriente,
-						"tenerCorriente":  nuevaTarjeta.TenerCorriente,
-						"tener":           nuevaTarjeta.Tener,
-						"apalancamiento":  nuevaTarjeta.Apalancamiento,
-						"msi":             nuevaTarjeta.Msi,
-						"uso":             nuevaTarjeta.Uso,
-						"usoPorcentaje":   nuevaTarjeta.UsoPorcentaje,
+						"nombre":     nuevaTarjeta.Nombre,
+						"disponible": nuevaTarjeta.Disponible,
+						"saldo":      nuevaTarjeta.Saldo,
+						"apagar":     nuevaTarjeta.Apagar,
+						"color":      nuevaTarjeta.Color,
+						"credito":    nuevaTarjeta.Credito,
+						"saldoAPago": nuevaTarjeta.SaldoAPago,
 					},
 				}
 
-				// Ejecutamos la actualización
 				_, err = collection.UpdateOne(ctx, bson.M{"_id": objID}, updateData)
 				if err != nil {
 					log.Printf("Error actualizando tarjeta en DB: %v", err)
@@ -171,7 +157,6 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 			case "create":
 				fmt.Printf("[DB] Ejecutando INSERT para: %s\n", nombre)
 
-				// Opcional: Validar que el nombre no exista ya
 				var existente modelos.Tarjeta
 				err := collection.FindOne(ctx, bson.M{"nombre": nuevaTarjeta.Nombre}).Decode(&existente)
 				if err == nil {
@@ -183,7 +168,6 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 					return
 				}
 
-				// Insertamos en la BD. MongoDB creará el '_id' automáticamente.
 				_, err = collection.InsertOne(ctx, nuevaTarjeta)
 				if err != nil {
 					log.Printf("Error creando tarjeta en DB: %v", err)
@@ -197,6 +181,34 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 			default:
 				http.Error(w, "Acción no reconocida", http.StatusBadRequest)
 			}
+
+		case http.MethodDelete:
+			idStr := r.URL.Query().Get("id")
+			if idStr == "" {
+				http.Error(w, "El ID es obligatorio para eliminar", http.StatusBadRequest)
+				return
+			}
+
+			objID, err := primitive.ObjectIDFromHex(idStr)
+			if err != nil {
+				http.Error(w, "Formato de ID inválido", http.StatusBadRequest)
+				return
+			}
+
+			resultado, err := collection.DeleteOne(ctx, bson.M{"_id": objID})
+			if err != nil {
+				log.Printf("Error eliminando tarjeta en DB: %v", err)
+				http.Error(w, "Error al eliminar en la base de datos", http.StatusInternalServerError)
+				return
+			}
+
+			if resultado.DeletedCount == 0 {
+				http.Error(w, "Tarjeta no encontrada", http.StatusNotFound)
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("¡Eliminado con éxito!"))
 		default:
 			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 		}
