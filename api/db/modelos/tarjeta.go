@@ -60,20 +60,20 @@ func (t *Tarjeta) CalcularCredito() {
 	}
 	t.TenerCorriente = math.Round((saldoCorriente*float64(t.SemanaCorriente)/7.0)*100) / 100
 
-	deudaTotal := math.Max(0.0, t.Credito-t.Disponible)
-	msiTotal := math.Max(0.0, deudaTotal-t.Saldo)
+	t.Uso = math.Max(0.0, t.Credito-t.Disponible)
+	msiTotal := math.Max(0.0, t.Uso-t.Saldo)
 	tenerAcumulado := t.TenerCorriente + t.TenerAPago
 
-	apalancamientoTotal := math.Max(0.0, deudaTotal-tenerAcumulado)
+	apalancamientoTotal := math.Max(0.0, t.Uso-tenerAcumulado)
 	msi := math.Min(msiTotal, apalancamientoTotal)
 
-	t.Tener = math.Min(deudaTotal, tenerAcumulado)
+	t.Tener = math.Min(t.Uso, tenerAcumulado)
 	t.Msi = math.Round(msi*100) / 100
 	t.Apalancamiento = math.Round(math.Max(0.0, apalancamientoTotal-msi)*100) / 100
 
 	t.UsoPorcentaje = 0.0
 	if t.Credito > 0 {
-		t.UsoPorcentaje = math.Round((deudaTotal/t.Credito*100)*10) / 10
+		t.UsoPorcentaje = math.Round((t.Uso/t.Credito*100)*10) / 10
 	}
 
 	t.FechaPago = fechaPago.Format("02/01/2006")
