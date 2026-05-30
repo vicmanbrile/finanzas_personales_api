@@ -25,7 +25,7 @@ type Tarjeta struct {
 	Disponible      float64            `bson:"disponible" json:"disponible"`
 	Saldo           float64            `bson:"saldo" json:"saldo"`
 	Apagar          float64            `bson:"-" json:"apagar"`
-	FechaPago       string             `bson:"fechaAPago" json:"fechaAPago"`
+	FechaPago       string             `bson:"fechaAPago" json:"fechaPago"`
 	Color           string             `bson:"color" json:"color"`
 	Credito         float64            `bson:"credito" json:"credito"`
 	SaldoAPago      float64            `bson:"saldoAPago" json:"saldoAPago"`
@@ -221,6 +221,7 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 					"color":      t.Color,
 					"credito":    t.Credito,
 					"saldoAPago": t.SaldoAPago,
+					"fechaAPago": t.FechaPago,
 				},
 			}
 
