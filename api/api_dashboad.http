@@ -1,0 +1,4 @@
+@API_URL = http://localhost:8000/api/dashboard/totals
+
+## Ver totales
+GET {{API_URL}}

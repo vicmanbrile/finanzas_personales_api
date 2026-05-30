@@ -3,11 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"finanzas-personales/api/db/modelos"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
-	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,11 +16,84 @@ import (
 )
 
 const (
-	dbName         = "finanzas"
-	collectionName = "tarjetas"
+	dbName = "finanzas"
 )
 
+type Tarjeta struct {
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Nombre          string             `bson:"nombre" json:"nombre"`
+	Disponible      float64            `bson:"disponible" json:"disponible"`
+	Saldo           float64            `bson:"saldo" json:"saldo"`
+	Apagar          float64            `bson:"-" json:"apagar"`
+	FechaPago       string             `bson:"fechaAPago" json:"fechaAPago"`
+	Color           string             `bson:"color" json:"color"`
+	Credito         float64            `bson:"credito" json:"credito"`
+	SaldoAPago      float64            `bson:"saldoAPago" json:"saldoAPago"`
+	SemanaAPago     int                `bson:"-" json:"semanaAPago"`
+	TenerAPago      float64            `bson:"-" json:"tenerAPago"`
+	SemanaCorriente int                `bson:"-" json:"semanaCorriente"`
+	TenerCorriente  float64            `bson:"-" json:"tenerCorriente"`
+	Tener           float64            `bson:"-" json:"tener"`
+	Apalancamiento  float64            `bson:"-" json:"apalancamiento"`
+	Msi             float64            `bson:"-" json:"msi"`
+	Uso             float64            `bson:"-" json:"uso"`
+	UsoPorcentaje   float64            `bson:"-" json:"usoPorcentaje"`
+}
+
+func (t *Tarjeta) CalcularCredito() {
+	t.Apagar = t.SaldoAPago
+
+	fechaPago, err := time.Parse("2006-01-02", t.FechaPago)
+	if err != nil {
+		fechaPago, err = time.Parse("02/01/2006", t.FechaPago)
+		if err != nil {
+			fechaPago = time.Now()
+		}
+	}
+
+	hoy := time.Now().Truncate(24 * time.Hour)
+	diasAlViernes := (int(fechaPago.Weekday()) - 4 + 7) % 7
+	inicioSemana7 := fechaPago.AddDate(0, 0, -diasAlViernes)
+	diasDiff := int(inicioSemana7.Sub(hoy).Hours() / 24)
+
+	semanas := 7
+	if diasDiff > 0 {
+		semanas = 7 - int(math.Ceil(float64(diasDiff)/7.0))
+	}
+	t.SemanaAPago = int(math.Max(1, math.Min(7, float64(semanas))))
+
+	t.TenerAPago = math.Round((t.SaldoAPago*float64(t.SemanaAPago)/7.0)*100) / 100
+
+	saldoCorriente := math.Max(0.0, t.Saldo-t.SaldoAPago)
+
+	t.SemanaCorriente = 1
+	if t.SemanaAPago > 4 {
+		t.SemanaCorriente = t.SemanaAPago - 4
+	}
+	t.TenerCorriente = math.Round((saldoCorriente*float64(t.SemanaCorriente)/7.0)*100) / 100
+
+	t.Uso = math.Max(0.0, t.Credito-t.Disponible)
+	msiTotal := math.Max(0.0, t.Uso-t.Saldo)
+	tenerAcumulado := t.TenerCorriente + t.TenerAPago
+
+	apalancamientoTotal := math.Max(0.0, t.Uso-tenerAcumulado)
+	msi := math.Min(msiTotal, apalancamientoTotal)
+
+	t.Tener = math.Min(t.Uso, tenerAcumulado)
+	t.Msi = math.Round(msi*100) / 100
+	t.Apalancamiento = math.Round(math.Max(0.0, apalancamientoTotal-msi)*100) / 100
+
+	t.UsoPorcentaje = 0.0
+	if t.Credito > 0 {
+		t.UsoPorcentaje = math.Round((t.Uso/t.Credito*100)*10) / 10
+	}
+
+	t.FechaPago = fechaPago.Format("02/01/2006")
+}
+
 func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
+	var collectionName = "tarjetas"
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/tarjetas" {
 			http.NotFound(w, r)
@@ -38,7 +110,7 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 			idStr := r.URL.Query().Get("id")
 			if idStr == "" {
 				findOptions := options.Find()
-				findOptions.SetSort(bson.D{{Key: "saldoapago", Value: -1}})
+				findOptions.SetSort(bson.D{{Key: "saldoAPago", Value: -1}})
 
 				cursor, err := collection.Find(ctx, bson.D{}, findOptions)
 				if err != nil {
@@ -48,7 +120,7 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 				}
 				defer cursor.Close(ctx)
 
-				var tarjetas []modelos.Tarjeta
+				var tarjetas []Tarjeta
 				if err = cursor.All(ctx, &tarjetas); err != nil {
 					log.Printf("Error decodificando resultados: %v", err)
 					http.Error(w, "Error interno", http.StatusInternalServerError)
@@ -70,7 +142,7 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 				return
 			}
 
-			var tarjetaEncontrada modelos.Tarjeta
+			var tarjetaEncontrada Tarjeta
 			err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&tarjetaEncontrada)
 			if err != nil {
 				if err == mongo.ErrNoDocuments {
@@ -88,99 +160,79 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 			json.NewEncoder(w).Encode(tarjetaEncontrada)
 
 		case http.MethodPost:
-			if err := r.ParseMultipartForm(10 << 20); err != nil {
-				http.Error(w, "Error al procesar el formulario multipart", http.StatusBadRequest)
+			var t Tarjeta
+			err := json.NewDecoder(r.Body).Decode(&t)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 
-			accion := r.FormValue("action")
-			nombre := r.FormValue("nombre")
-			color := r.FormValue("color")
-			fechaPago := r.FormValue("fechaPago")
+			fmt.Printf("[DB] Ejecutando INSERT para: %s\n", t.Nombre)
 
-			credito, _ := strconv.ParseFloat(r.FormValue("credito"), 64)
-			disponible, _ := strconv.ParseFloat(r.FormValue("disponible"), 64)
-			saldo, _ := strconv.ParseFloat(r.FormValue("saldo"), 64)
-			saldoAPago, _ := strconv.ParseFloat(r.FormValue("saldoAPago"), 64)
-
-			if color == "" {
-				color = "#6366f1"
+			var existente Tarjeta
+			err = collection.FindOne(ctx, bson.M{"nombre": t.Nombre}).Decode(&existente)
+			if err == nil {
+				http.Error(w, "Ya existe una tarjeta con ese nombre", http.StatusConflict)
+				return
+			} else if err != mongo.ErrNoDocuments {
+				log.Printf("Error verificando existencia: %v", err)
+				http.Error(w, "Error interno del servidor", http.StatusInternalServerError)
+				return
 			}
 
-			nuevaTarjeta := modelos.Tarjeta{
-				Nombre:     nombre,
-				Credito:    credito,
-				Disponible: disponible,
-				Saldo:      saldo,
-				FechaPago:  fechaPago,
-				SaldoAPago: saldoAPago,
-				Color:      color,
+			_, err = collection.InsertOne(ctx, t)
+			if err != nil {
+				log.Printf("Error creando tarjeta en DB: %v", err)
+				http.Error(w, "Error al crear en la base de datos", http.StatusInternalServerError)
+				return
 			}
 
-			switch accion {
-			case "update":
-				fmt.Printf("[DB] Ejecutando UPDATE para: %s\n", nombre)
-				idStr := r.FormValue("id")
-				if idStr == "" {
-					http.Error(w, "El ID es obligatorio para actualizar", http.StatusBadRequest)
-					return
-				}
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte("¡Creado con éxito!"))
 
-				objID, err := primitive.ObjectIDFromHex(idStr)
-				if err != nil {
-					http.Error(w, "Formato de ID inválido", http.StatusBadRequest)
-					return
-				}
-
-				updateData := bson.M{
-					"$set": bson.M{
-						"nombre":     nuevaTarjeta.Nombre,
-						"disponible": nuevaTarjeta.Disponible,
-						"saldo":      nuevaTarjeta.Saldo,
-						"apagar":     nuevaTarjeta.Apagar,
-						"color":      nuevaTarjeta.Color,
-						"credito":    nuevaTarjeta.Credito,
-						"saldoAPago": nuevaTarjeta.SaldoAPago,
-					},
-				}
-
-				_, err = collection.UpdateOne(ctx, bson.M{"_id": objID}, updateData)
-				if err != nil {
-					log.Printf("Error actualizando tarjeta en DB: %v", err)
-					http.Error(w, "Error al actualizar la base de datos", http.StatusInternalServerError)
-					return
-				}
-
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("¡Actualizado con éxito!"))
-
-			case "create":
-				fmt.Printf("[DB] Ejecutando INSERT para: %s\n", nombre)
-
-				var existente modelos.Tarjeta
-				err := collection.FindOne(ctx, bson.M{"nombre": nuevaTarjeta.Nombre}).Decode(&existente)
-				if err == nil {
-					http.Error(w, "Ya existe una tarjeta con ese nombre", http.StatusConflict)
-					return
-				} else if err != mongo.ErrNoDocuments {
-					log.Printf("Error verificando existencia: %v", err)
-					http.Error(w, "Error interno del servidor", http.StatusInternalServerError)
-					return
-				}
-
-				_, err = collection.InsertOne(ctx, nuevaTarjeta)
-				if err != nil {
-					log.Printf("Error creando tarjeta en DB: %v", err)
-					http.Error(w, "Error al crear en la base de datos", http.StatusInternalServerError)
-					return
-				}
-
-				w.WriteHeader(http.StatusCreated)
-				w.Write([]byte("¡Creado con éxito!"))
-
-			default:
-				http.Error(w, "Acción no reconocida", http.StatusBadRequest)
+		case http.MethodPut:
+			idStr := r.URL.Query().Get("id")
+			if idStr == "" {
+				http.Error(w, "El ID es obligatorio en la URL (?id=...) para actualizar", http.StatusBadRequest)
+				return
 			}
+
+			objID, err := primitive.ObjectIDFromHex(idStr)
+			if err != nil {
+				http.Error(w, "Formato de ID inválido", http.StatusBadRequest)
+				return
+			}
+
+			var t Tarjeta
+			err = json.NewDecoder(r.Body).Decode(&t)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			fmt.Printf("[DB] Ejecutando UPDATE para: %s\n", t.Nombre)
+
+			updateData := bson.M{
+				"$set": bson.M{
+					"nombre":     t.Nombre,
+					"disponible": t.Disponible,
+					"saldo":      t.Saldo,
+					"apagar":     t.Apagar,
+					"color":      t.Color,
+					"credito":    t.Credito,
+					"saldoAPago": t.SaldoAPago,
+				},
+			}
+
+			_, err = collection.UpdateOne(ctx, bson.M{"_id": objID}, updateData)
+			if err != nil {
+				log.Printf("Error actualizando tarjeta en DB: %v", err)
+				http.Error(w, "Error al actualizar la base de datos", http.StatusInternalServerError)
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("¡Actualizado con éxito!"))
 
 		case http.MethodDelete:
 			idStr := r.URL.Query().Get("id")
