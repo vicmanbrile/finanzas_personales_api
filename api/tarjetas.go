@@ -7,12 +7,12 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 const (
@@ -20,52 +20,67 @@ const (
 )
 
 type Tarjeta struct {
-	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Nombre          string             `bson:"nombre" json:"nombre"`
-	Disponible      float64            `bson:"disponible" json:"disponible"`
-	Saldo           float64            `bson:"saldo" json:"saldo"`
-	Apagar          float64            `bson:"-" json:"apagar"`
-	FechaPago       string             `bson:"fechaAPago" json:"fechaPago"`
-	Color           string             `bson:"color" json:"color"`
-	Credito         float64            `bson:"credito" json:"credito"`
-	SaldoAPago      float64            `bson:"saldoAPago" json:"saldoAPago"`
-	SemanaAPago     int                `bson:"-" json:"semanaAPago"`
-	TenerAPago      float64            `bson:"-" json:"tenerAPago"`
-	SemanaCorriente int                `bson:"-" json:"semanaCorriente"`
-	TenerCorriente  float64            `bson:"-" json:"tenerCorriente"`
-	Tener           float64            `bson:"-" json:"tener"`
-	Apalancamiento  float64            `bson:"-" json:"apalancamiento"`
-	Msi             float64            `bson:"-" json:"msi"`
-	Uso             float64            `bson:"-" json:"uso"`
-	UsoPorcentaje   float64            `bson:"-" json:"usoPorcentaje"`
+	// Datos guardados
+	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Nombre     string             `bson:"nombre" json:"nombre"`
+	Credito    float64            `bson:"credito" json:"credito"`
+	Disponible float64            `bson:"disponible" json:"disponible"`
+	Saldo      float64            `bson:"saldo" json:"saldo"`
+	SaldoAPago float64            `bson:"saldoAPago" json:"saldoAPago"`
+	Color      string             `bson:"color" json:"color"`
+	DiaCorte   int                `bson:"diaCorte" json:"diaCorte"`
+	DiaPago    int                `bson:"diaPago" json:"diaPago"`
+	// Estado del credito
+	SemanaCorriente      int  `bson:"-" json:"semanaCorriente"`
+	SemanaAPago          int  `bson:"-" json:"semanaAPago"`
+	DiasParaProximoCorte int  `bson:"-" json:"diasParaProximoCorte"`
+	DiasParaProximoPago  int  `bson:"-" json:"diasParaProximoPago"`
+	TienePagoPendiente   bool `bson:"-" json:"tienePagoPendiente"`
+	// Divicion del credito completo
+	Uso            float64 `bson:"-" json:"uso"`
+	UsoPorcentaje  float64 `bson:"-" json:"usoPorcentaje"`
+	Tener          float64 `bson:"-" json:"tener"`
+	Apalancamiento float64 `bson:"-" json:"apalancamiento"`
+	Msi            float64 `bson:"-" json:"msi"`
+	// Calculos de cuanto tener
+	TenerAPago     float64 `bson:"-" json:"tenerAPago"`
+	TenerCorriente float64 `bson:"-" json:"tenerCorriente"`
 }
 
 func (t *Tarjeta) CalcularCredito() {
-	t.Apagar = t.SaldoAPago
 
-	fechaPago, err := time.Parse("2006-01-02", t.FechaPago)
-	if err != nil {
-		fechaPago, err = time.Parse("02/01/2006", t.FechaPago)
-		if err != nil {
-			fechaPago = time.Now()
-		}
+	hoyTruncado := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Local)
+
+	diaPago := t.DiaPago
+	if diaPago == 0 {
+		diaPago = 1
+	}
+	fechaPago := time.Date(hoyTruncado.Year(), hoyTruncado.Month(), diaPago, 0, 0, 0, 0, time.Local)
+	if fechaPago.Before(hoyTruncado) {
+		fechaPago = fechaPago.AddDate(0, 1, 0)
 	}
 
-	hoy := time.Now().Truncate(24 * time.Hour)
+	diaCorte := t.DiaCorte
+	if diaCorte == 0 {
+		diaCorte = 1
+	}
+	fechaCorte := time.Date(hoyTruncado.Year(), hoyTruncado.Month(), diaCorte, 0, 0, 0, 0, time.Local)
+	if fechaCorte.Before(hoyTruncado) {
+		fechaCorte = fechaCorte.AddDate(0, 1, 0)
+	}
+
 	diasAlViernes := (int(fechaPago.Weekday()) - 4 + 7) % 7
 	inicioSemana7 := fechaPago.AddDate(0, 0, -diasAlViernes)
-	diasDiff := int(inicioSemana7.Sub(hoy).Hours() / 24)
+	diasDiff := int(inicioSemana7.Sub(hoyTruncado).Hours() / 24)
 
 	semanas := 7
 	if diasDiff > 0 {
 		semanas = 7 - int(math.Ceil(float64(diasDiff)/7.0))
 	}
 	t.SemanaAPago = int(math.Max(1, math.Min(7, float64(semanas))))
-
 	t.TenerAPago = math.Round((t.SaldoAPago*float64(t.SemanaAPago)/7.0)*100) / 100
 
 	saldoCorriente := math.Max(0.0, t.Saldo-t.SaldoAPago)
-
 	t.SemanaCorriente = 1
 	if t.SemanaAPago > 4 {
 		t.SemanaCorriente = t.SemanaAPago - 4
@@ -88,7 +103,26 @@ func (t *Tarjeta) CalcularCredito() {
 		t.UsoPorcentaje = math.Round((t.Uso/t.Credito*100)*10) / 10
 	}
 
-	t.FechaPago = fechaPago.Format("02/01/2006")
+	corteTrun := fechaCorte
+	pagoTrun := fechaPago
+
+	t.TienePagoPendiente = t.SaldoAPago > 0
+
+	pagoCorriente := pagoTrun
+	if !pagoTrun.After(corteTrun) {
+		pagoCorriente = time.Date(corteTrun.Year(), corteTrun.Month()+1, pagoTrun.Day(), 0, 0, 0, 0, time.Local)
+	}
+
+	calcularDias := func(destino time.Time) int {
+		if !hoyTruncado.Before(destino) {
+			return 0
+		}
+		return int(math.Round(destino.Sub(hoyTruncado).Hours() / 24.0))
+	}
+
+	t.DiasParaProximoCorte = calcularDias(corteTrun)
+	t.DiasParaProximoPago = calcularDias(pagoCorriente)
+
 }
 
 func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
@@ -109,10 +143,7 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 		case http.MethodGet:
 			idStr := r.URL.Query().Get("id")
 			if idStr == "" {
-				findOptions := options.Find()
-				findOptions.SetSort(bson.D{{Key: "saldoAPago", Value: -1}})
-
-				cursor, err := collection.Find(ctx, bson.D{}, findOptions)
+				cursor, err := collection.Find(ctx, bson.D{})
 				if err != nil {
 					log.Printf("Error consultando MongoDB: %v", err)
 					http.Error(w, "Error interno del servidor", http.StatusInternalServerError)
@@ -130,6 +161,10 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 				for i := range tarjetas {
 					tarjetas[i].CalcularCredito()
 				}
+
+				sort.Slice(tarjetas, func(i, j int) bool {
+					return tarjetas[i].DiasParaProximoPago > tarjetas[j].DiasParaProximoPago
+				})
 
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(tarjetas)
@@ -158,7 +193,6 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(tarjetaEncontrada)
-
 		case http.MethodPost:
 			var t Tarjeta
 			err := json.NewDecoder(r.Body).Decode(&t)
@@ -217,11 +251,11 @@ func TarjetasHandler(mongoClient *mongo.Client) http.HandlerFunc {
 					"nombre":     t.Nombre,
 					"disponible": t.Disponible,
 					"saldo":      t.Saldo,
-					"apagar":     t.Apagar,
 					"color":      t.Color,
 					"credito":    t.Credito,
 					"saldoAPago": t.SaldoAPago,
-					"fechaAPago": t.FechaPago,
+					"diaPago":    t.DiaPago,
+					"diaCorte":   t.DiaCorte,
 				},
 			}
 

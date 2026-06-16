@@ -4,36 +4,38 @@
 ## Ver las Tarjetas
 GET {{API_URL}}
 
-
-### Ver
+### Ver una Tarjeta por ID
 GET {{API_URL}}?id={{ID_TEST}}
 
 ### Crear Tarjeta
-Content-Type: application/json
 POST {{API_URL}}
+Content-Type: application/json
+
 {
   "nombre": "Oro",
   "credito": 23700,
   "disponible": 18638.66,
   "saldo": 1692.68,
-  "fechaPago": "2026-05-08",
   "saldoAPago": 572.52,
-  "color": "#004481"
+  "color": "#004481",
+  "diaCorte": 18,
+  "diaPago": 8
 }
 
-### Actualizar
+### Actualizar Tarjeta
 PUT {{API_URL}}?id={{ID_TEST}}
 Content-Type: application/json
-{
-  "nombre": "Oro",
-  "credito": 25000,
-  "disponible": 19000,
-  "saldo": 1000,
-  "fechaPago": "2026-05-08",
-  "saldoAPago": 500,
-  "color": "#004481"
-}
 
+{
+  "nombre": "Rappi",
+  "credito": 59000,
+  "disponible": 50578.14,
+  "saldo": 5307.42,
+  "saldoAPago": 2237.08,
+  "color": "#FF5E3A",
+  "diaCorte": 6,
+  "diaPago": 27
+}
 
 ### Borrar tarjeta
 DELETE {{API_URL}}?id={{ID_TEST}}
@@ -50,9 +52,10 @@ Content-Type: application/json
   "credito": 19000,
   "disponible": 12239.91,
   "saldo": 2812.81,
-  "fechaPago": "2026-05-11",
   "saldoAPago": 1612.9,
-  "color": "#002D72"
+  "color": "#002D72",
+  "diaCorte": 21,
+  "diaPago": 11
 }
 
 ### Crear Tarjeta: Rappi
@@ -64,9 +67,10 @@ Content-Type: application/json
   "credito": 52000,
   "disponible": 44502.14,
   "saldo": 2423.74,
-  "fechaPago": "2026-05-27",
   "saldoAPago": 0,
-  "color": "#FF5E3A"
+  "color": "#FF5E3A",
+  "diaCorte": 7,
+  "diaPago": 27
 }
 
 ### Crear Tarjeta: Plata
@@ -78,9 +82,10 @@ Content-Type: application/json
   "credito": 3000,
   "disponible": 2612.65,
   "saldo": 387.35,
-  "fechaPago": "2026-05-27",
   "saldoAPago": 387.35,
-  "color": "#FF5D15"
+  "color": "#FF5D15",
+  "diaCorte": 7,
+  "diaPago": 27
 }
 
 ### Crear Tarjeta: Nu
@@ -92,9 +97,10 @@ Content-Type: application/json
   "credito": 16800,
   "disponible": 16434,
   "saldo": 366,
-  "fechaPago": "2026-06-05",
   "saldoAPago": 0,
-  "color": "#A63094"
+  "color": "#A63094",
+  "diaCorte": 15,
+  "diaPago": 5
 }
 
 ### Crear Tarjeta: Klar
@@ -106,9 +112,10 @@ Content-Type: application/json
   "credito": 20500,
   "disponible": 20158.93,
   "saldo": 341.07,
-  "fechaPago": "2026-05-04",
   "saldoAPago": 341.07,
-  "color": "#FF4D4D"
+  "color": "#FF4D4D",
+  "diaCorte": 14,
+  "diaPago": 4
 }
 
 ### Crear Tarjeta: Stori
@@ -120,7 +127,8 @@ Content-Type: application/json
   "credito": 21000,
   "disponible": 17648,
   "saldo": 3352,
-  "fechaPago": "2026-05-18",
   "saldoAPago": 111,
-  "color": "#8A05BE"
+  "color": "#8A05BE",
+  "diaCorte": 28,
+  "diaPago": 18
 }
