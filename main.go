@@ -3,48 +3,42 @@ package main
 import (
 	"context"
 	"finanzas-personales/api"
+	"finanzas-personales/database"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
-
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 const (
 	Port = ":8000"
 )
 
-var mongoClient *mongo.Client
-
 func main() {
 	uri := os.Getenv("MONGO_URI")
 	if uri == "" {
-		uri = "mongodb://localhost:27017/finanzas"
+		uri = "mongodb://localhost:27017"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	db, err := database.NewDBClient(ctx, uri, "finanzas")
 	if err != nil {
-		log.Fatal("Error conectando a MongoDB:", err)
+		log.Fatalf("Error conectando a la base de datos: %v", err)
 	}
-
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		log.Fatal("No se pudo hacer ping a MongoDB:", err)
-	}
+	defer db.Close(context.Background())
 
 	log.Println("Conectado exitosamente a MongoDB")
-	mongoClient = client
 
-	http.HandleFunc("/api/tarjetas", api.TarjetasHandler(mongoClient))
-	http.HandleFunc("/api/prestamo", api.PrestamosHandler(mongoClient))
-	http.HandleFunc("/api/dashboard/totals", api.TotalsHandler(mongoClient))
-	http.HandleFunc("/api/debito", api.DebitsHandler(mongoClient))
+	server := &api.API{
+		DB: db,
+	}
+
+	http.HandleFunc("/api/tarjetas", server.TarjetasHandler)
+	http.HandleFunc("/api/dashboard/totals", server.TotalsHandler)
+
 	fmt.Printf("Servidor Go corriendo en http://localhost%s\n", Port)
 	log.Fatal(http.ListenAndServe(Port, nil))
 }
